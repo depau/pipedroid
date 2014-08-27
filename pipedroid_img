@@ -1,0 +1,94 @@
+#!/bin/bash
+
+mkdir "~/.pipedroid" 2> /dev/null
+CFG="~/.pipedroid"
+
+function debug {
+    dbg="$(cat ${CFG}/debug)"
+    echo "$1" | while read line;
+        do 
+        echo "$(date +%T) pipedroid_img: $line" >> "${CFG}/pipedroid.log"
+    done
+    if [ -e "${CFG}/debug" ];
+        then
+        echo "$1"
+    fi
+}
+
+case $1 in
+    "-h")
+        echo -e "Usage: pipedroid_img [remote_source] [local_dest] [decompress|keep_compressed|no_compression]"
+        exit 0
+    ;;
+    "--help")
+        echo -e "Usage: pipedroid_img [remote_source] [local_dest] [decompress|keep_compressed|no_compression]"
+        exit 0
+    ;;
+esac
+
+echo "" >> "${CFG}/pipedroid.log"
+debug "Started."
+
+remotes="$1"
+locald="$2"
+compression="$3" #"$(echo "$3" | sed 's/[^a-zA-Z_]//g')"
+
+debug "Remote source: $remotes"
+debug "Local destination: $locald"
+debug "Compression method: $compression"
+
+rm "$locald"
+if [ "$compression" == "keep_compressed" ]
+    then
+    if [ "$locald" != "*gz" ]
+        then
+        locald="${locald}.gz"
+        rm "$locald"
+    fi
+fi
+
+
+echo "Receiving backup from Android device, please wait..."
+
+size="$(adb shell su -c "blockdev --getsize64 $remotes" | sed 's/[^0-9]//g')"
+
+echo
+
+if [ "$compression" != "no_compression" ]
+    then
+    (
+        adb forward tcp:5455 tcp:5455
+        adb shell su -c "busybox dd if=$remotes | gzip |  busybox nc -l -p 5455"
+        echo "( ↑↑↑ remote  ^^^ )"
+    ) >> "${CFG}/pipedroid.log" 2>&1 &
+    sleep 1
+
+    if [ "$compression" == "keep_compressed" ]
+        then
+        (
+            adb forward tcp:5455 tcp:5455
+            nc 127.0.0.1 5455 | pv -i 0.4 | dd of="$locald" 2>> "${CFG}/pipedroid.log"
+            echo "( ↑↑↑ local  ^^^ )" >> "${CFG}/pipedroid.log"
+        )
+    else
+        (
+            adb forward tcp:5455 tcp:5455
+            nc 127.0.0.1 5455 | gunzip | pv -s $size -i 0.4 | dd of="$locald" 2>> "${CFG}/pipedroid.log"
+            echo "( ↑↑↑ local  ^^^ )" >> "${CFG}/pipedroid.log"
+        )
+    fi
+else
+    (
+        adb forward tcp:5455 tcp:5455
+        adb shell su -c "busybox dd if=$remotes |  busybox nc -l -p 5455"
+        echo "( ↑↑↑ remote  ^^^ )"
+    ) >> "${CFG}/pipedroid.log" 2>&1 &
+
+    sleep 1
+
+    (
+        adb forward tcp:5455 tcp:5455
+        nc 127.0.0.1 5455 | pv -s $size -i 0.4 | dd of="$locald" 2>> "${CFG}/pipedroid.log"
+        echo "( ↑↑↑ local  ^^^ )" >> "${CFG}/pipedroid.log"
+    ) 
+fi
