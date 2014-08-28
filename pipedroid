@@ -108,9 +108,9 @@ fi
 
 debug "Partition choosen: ${part}"
 
-ok_message "In the next dialog, please choose the compression method you prefer.\n\nDO NOT DOUBLE CLICK: select the menu item then press Ok (it's a bug)"
+ok_message "In the next dialog, please choose the compression method you prefer.\n\nIf you don't know what to pick, here there's a detailed explanation of what they do:\n\nhttps://github.com/Davideddu/pipedroid#compression-methods\n\nDO NOT DOUBLE CLICK: select the menu item then press Ok (it's a bug)"
 
-tagged_menu "decompress" "Compress remotely, decompress locally (recommended)" "keep_compressed" "Compress remotely, keep compressed (can't monitor progress)" "no_compression" "No compression at all (slow)"
+tagged_menu "recompress" "Compress remotely, decompress and recompress locally (recommended)" "decompress" "Compress remotely, decompress locally" "keep_compressed" "Compress remotely, keep compressed (can't monitor progress)" "no_compression" "No compression at all (slow)"
 compression="$(0< "${dir_tmp}/${file_tmp}" )"
 
 debug "Compression method: ${compression}"

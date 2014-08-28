@@ -18,11 +18,11 @@ function debug {
 
 case $1 in
     "-h")
-        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|keep_compressed|no_compression]"
+        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
         exit 0
     ;;
     "--help")
-        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|keep_compressed|no_compression]"
+        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
         exit 0
     ;;
 esac
@@ -39,7 +39,7 @@ debug "Local destination: $locald"
 debug "Compression method: $compression"
 
 rm "$locald" > /dev/null
-if [ "$compression" == "keep_compressed" ]
+if grep -qE "keep_compressed|recompress" <<< "$compression"
     then
     if [ "$locald" != "*gz" ]
         then
@@ -47,7 +47,6 @@ if [ "$compression" == "keep_compressed" ]
         rm "$locald" > /dev/null
     fi
 fi
-
 
 echo "Receiving backup from Android device, please wait..."
 
@@ -83,10 +82,17 @@ if [ "$compression" != "no_compression" ]
             nc 127.0.0.1 5455 | pv -i 0.4 | dd of="$locald" 2>> ${CFG}/pipedroid.log
             echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
         )
-    else
+    elif [ "$compression" == "decompress" ]
+        then
         (
             adb forward tcp:5455 tcp:5455
             nc 127.0.0.1 5455 | gunzip | pv -s $size -i 0.4 | dd of="$locald" 2>> ${CFG}/pipedroid.log
+            echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
+        )
+    else
+        (
+            adb forward tcp:5455 tcp:5455
+            nc 127.0.0.1 5455 | gunzip | pv -s $size -i 0.4 | gzip | dd of="$locald" 2>> ${CFG}/pipedroid.log
             echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
         )
     fi
