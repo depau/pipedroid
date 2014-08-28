@@ -1,21 +1,22 @@
 #!/bin/bash
 
-mkdir "~/.pipedroid" 2> /dev/null
-CFG="~/.pipedroid"
+mkdir ~/.pipedroid 2> /dev/null
+CFG=~/.pipedroid
+mv ${CFG}/pipedroid.log ${CFG}/pipedroid.log.1 2> /dev/null
+touch ${CFG}/pipedroid.log
 
 function debug {
     echo "$1" | while read line;
         do 
-        echo "$(date +%T) pipedroid: $line" >> "${CFG}/pipedroid.log"
+        echo "$(date +%T) pipedroid: $line" >> ${CFG}/pipedroid.log
     done
     if [ -e "${CFG}/debug" ];
         then
-        echo "$1"
+        echo "$1" 1>&2
     fi
 }
 
-echo -e "\n\n" >> "${CFG}/pipedroid.log"
-date >> "${CFG}/pipedroid.log"
+date >> ${CFG}/pipedroid.log
 echo "Using $CFG as config directory."
 
 debug "Looking for EasyBashGUI..."
@@ -29,8 +30,33 @@ terminate_wait_for
 message "Please disconnect ALL Android devices EXCEPT the one you want to back up.\nPlease also make sure all network-ADB devices are disconnected.\nIf you need to connect one, do it NOW and disconnect all USB devices.\nAlso, if you're not running CyanogenMod, make sure the device is rooted, BusyBox is installed and ADB is enabled.\nIf you're in recovery, either make sure the partition you want to backup is mounted or you know it's device path.\n\n$(adb devices)\n\n(if this window is too long, use Alt+Drag to move it and reach the Ok button on the bottom."
 
 wait_for "Checking root..."
-adb shell su -c "ls / > /dev/null"
-exco="$?"
+case "$(adb shell su -c "id -u")" in
+    *"not found"*)
+        su="sh"
+        if [ "$(adb shell id -u | sed 's/[^0-9]//g')" == "0" ]
+            then
+            exco=0
+        else
+            exco=1
+        fi
+    ;;
+    *0*)
+        su="su"
+        if [ "$(adb shell su -c "id -u" | sed 's/[^0-9]//g')" == "0" ]
+            then
+            exco=0
+        elif grep -q "uid=0" <<< "$(adb shell su -c "id -u")";
+            then
+            exco=0
+        else
+            exco=1
+        fi
+    ;;
+    *)
+        su="su"
+        exco=1
+    ;;
+esac
 terminate_wait_for
 
 if [ "$exco" != "0" ];
@@ -48,23 +74,6 @@ else
     debug "The device is rooted."
 fi
 
-ok_message "In the next dialog you'll be given the list of mountpoints in your device. Select the partition you want to backup.\n\nPlease note that in newer Android devices the internal storage is located inside of the userdata partition, in the following path: /data/media/0"
-
-partlist="$(adb shell mount | awk '{print $1,$2;}' | grep -e  ^/dev | grep -v fuse)"
-
-OLDIFS="$IFS"
-IFS="$(echo -e "\n")"
-menu $partlist
-IFS="$OLDIFS"
-part="$(awk '{print $1;}' < "${dir_tmp}/${file_tmp}")"
-
-if [ ${part} -eq "" ]
-    then
-    exit 2
-fi
-
-debug "Partition choosen: ${part}"
-
 ok_message "In the next dialog, please select the backup format (more options will be added at some point).\n\nDO NOT DOUBLE CLICK: select the menu item then press Ok (it's a bug)"
 
 tagged_menu  "raw" "Raw filesystem image" #"tar" "Tarball"
@@ -76,6 +85,28 @@ if [ ${format} -eq "" ]
 fi
 
 debug "Backup format choosen: ${format}"
+
+ok_message "In the next dialog you'll be given the list of mountpoints in your device. Select the partition you want to backup.\n\nPlease note that in newer Android devices the internal storage is located inside of the userdata partition, in the following path: /data/media/0"
+
+partlist="$(adb shell cat /proc/mounts | awk '{print $1,$2;}' | grep -e  ^/dev | grep -v fuse)
+Custom"
+
+OLDIFS="$IFS"
+IFS="$(echo -e "\n")"
+menu $partlist
+IFS="$OLDIFS"
+part="$(awk '{print $1;}' < "${dir_tmp}/${file_tmp}")"
+
+if [ "${part}" == "" ]
+    then
+    exit 2
+elif [ "$part" == "Custom" ]
+    then
+    input 1 "Enter here the partition's block device"
+    part="$(0< "${dir_tmp}/${file_tmp}" )"
+fi
+
+debug "Partition choosen: ${part}"
 
 ok_message "In the next dialog, please choose the compression method you prefer.\n\nDO NOT DOUBLE CLICK: select the menu item then press Ok (it's a bug)"
 
@@ -114,4 +145,15 @@ if [ ${gz} -eq "true" ]
     dest="${dest}.gz"
 fi
 
-xterm -geometry 100x3+400+200 -T "PipeDroid Backup" -e pipedroid_img "${part}" "${dest}" "${compression}"
+xterm -geometry 100x3+400+200 -T "PipeDroid Backup" -e ./pipedroid_img "${part}" "${dest}" "${compression}"
+
+debug "Backup back-end has died."
+
+question "The backup has finished.\nDo you want to see the log to identify eventual issues?"
+answer="${?}"
+if [ ${answer} -eq 0 ]
+    then
+    cat $CFG/pipedroid.log | text
+fi
+
+exit 0

@@ -40,9 +40,9 @@ You need to add an extension to the files. For raw images use .img, for tarballs
 Usage (command line)
 --------------------
 
-Run either *pipedroid_img* or *pipedroid_tar* (work in progress) to create a backup manually.
+Run either *pipedbackup_img* or *pipedbackup_tar* (work in progress) to create a backup manually.
 
-*pipedroid_img* and *pipedroid_tar* accept the following arguments:
+*pipedbackup_img* and *pipedbackup_tar* accept the following arguments:
 
     [remote source] [local destination] [decompress|keep_compressed|no_compression]
 

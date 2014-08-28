@@ -1,0 +1,139 @@
+#!/bin/bash
+
+mkdir ~/.pipedroid 2> /dev/null
+CFG=~/.pipedroid
+touch ${CFG}/pipedroid.log
+
+function debug {
+    dbg="$(cat ${CFG}/debug)"
+    echo "$1" | while read line;
+        do 
+        echo "$(date +%T) pipedrestore_img: $line" >> ${CFG}/pipedroid.log
+    done
+    if [ -e "${CFG}/debug" ];
+        then
+        echo "$1" 1>&2
+    fi
+}
+
+case $1 in
+    "-h")
+        echo -e "Usage: pipedrestore_img [local_source] [remote_dest] --no-compression|-n"
+        exit 0
+    ;;
+    "--help")
+        echo -e "Usage: pipedrestore_img [local_source] [remote_dest] --no-compression|-n"
+        exit 0
+    ;;
+esac
+
+echo "" >> ${CFG}/pipedroid.log
+debug "Started."
+
+locals="$1"
+remoted="$2"
+compression="$3"
+
+if grep -q "--no-compression" <<< "$compression"
+	then
+	compression="no"
+elif grep -q "-n" <<< "$compression"
+	then
+	compression="no"
+else
+	compression="yes"
+fi
+
+debug "Local source: $locals"
+debug "Remote destination: $remoted"
+
+echo "Sending backup to Android device, please wait..."
+
+# Determine if "su" exists or if we're already root
+if grep -q "abcdef" <<< "$(adb shell su -c "echo abcdef")"
+    then
+    su="su"
+else
+    su="sh"
+fi
+
+size=$(stat -c %s "$locals" | sed 's/[^0-9]//g')
+
+echo
+
+if [ "$compression" == "yes" ]
+    then
+    (
+        adb forward tcp:5454 tcp:5454
+        adb shell $su -c "busybox nc -l -p 5454 | gunzip | dd of=\"$remoted\""
+        echo "( ↑↑↑ remote  ^^^ )"
+    ) >> ${CFG}/pipedroid.log 2>&1 &
+
+    sleep 1
+
+    if grep -qe 'gzip' <<< "$(file "$locals")"
+    	then
+	    (
+	        adb forward tcp:5454 tcp:5454
+	        dd if="$locals" 2>> ${CFG}/pipedroid.log | pv -s $size -i 0.4 | nc 127.0.0.1 5454
+	        echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
+	    )
+	else
+	    (
+	        adb forward tcp:5454 tcp:5454
+	        dd if="$locals" 2>> ${CFG}/pipedroid.log | pv -s $size -i 0.4 | gzip | nc 127.0.0.1 5454
+	        echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
+	    )
+	fi
+
+else
+    (
+        adb forward tcp:5454 tcp:5454
+        adb shell $su -c "busybox nc -l -p 5454 | dd of=\"$remoted\""
+        echo "( ↑↑↑ remote  ^^^ )"
+    ) >> ${CFG}/pipedroid.log 2>&1 &
+
+    sleep 1
+
+    if grep -qe 'gzip' <<< "$(file "$locals")"
+    	then
+	    (
+	        adb forward tcp:5454 tcp:5454
+	        dd if="$locals" 2>> ${CFG}/pipedroid.log | gunzip | pv -s $size -i 0.4 | nc 127.0.0.1 5454
+	        echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
+	    )
+	else
+	    (
+	        adb forward tcp:5454 tcp:5454
+	        dd if="$locals" 2>> ${CFG}/pipedroid.log | pv -s $size -i 0.4 | nc 127.0.0.1 5454
+	        echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
+	    )
+	fi
+fi
+
+echo "Checking checksums..."
+
+if grep -qe 'gzip' <<< "$(file "$locals")"
+    then
+    csl="$(cat "$locals" | gunzip | md5sum | awk '{print $1;}')"
+else
+    csl="$(md5sum "$locals" | awk '{print $1;}' )"
+fi
+echo "$csl"
+
+csr="$(adb shell $su -c "md5sum \"$remoted\"" | awk '{print $1;}')"
+
+if grep -qe "^${csl}\$" <<< "$csr"
+    then
+    echo "${csr} - match. Restore successful."
+    debug "Success. Checksums match (${csl})"
+    exit 0
+else
+    echo -n "${csr}"
+    echo " - do NOT match! ERROR." 1>&2
+    echo "Run the program again. If this occurs again, report a bug on GitHub. Attach the log." 1>&2
+    debug "Local image checksum:    ${csl}"
+    debug "Remote device checksum:  ${csr}"
+    debug "Checksums do not match! Restore unsuccessful!"
+    exit 1
+fi
