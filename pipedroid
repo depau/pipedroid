@@ -145,7 +145,7 @@ if [ ${gz} -eq "true" ]
     dest="${dest}.gz"
 fi
 
-xterm -geometry 100x3+400+200 -T "PipeDroid Backup" -e ./pipedroid_img "${part}" "${dest}" "${compression}"
+xterm -geometry 100x3+400+200 -T "PipeDroid Backup" -e ./pipedbackup_img "${part}" "${dest}" "${compression}"
 
 debug "Backup back-end has died."
 
