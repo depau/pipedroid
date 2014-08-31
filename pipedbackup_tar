@@ -7,7 +7,7 @@ touch ${CFG}/pipedroid.log
 function debug {
     echo "$1" | while read line;
         do 
-        echo "$(date +%T) pipedbackup_img: $line" >> ${CFG}/pipedroid.log
+        echo "$(date +%T) pipedbackup_tar: $line" >> ${CFG}/pipedroid.log
     done
     if [ -e "${CFG}/debug" ];
         then
@@ -17,11 +17,11 @@ function debug {
 
 case $1 in
     "-h")
-        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
+        echo -e "Usage: pipedbackup_tar [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
         exit 0
     ;;
     "--help")
-        echo -e "Usage: pipedbackup_img [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
+        echo -e "Usage: pipedbackup_tar [remote_source] [local_dest] [decompress|recompress|keep_compressed|no_compression]"
         exit 0
     ;;
 esac
@@ -47,8 +47,6 @@ if grep -qE "keep_compressed|recompress" <<< "$compression"
     fi
 fi
 
-echo "Receiving backup from Android device, please wait..."
-
 # Determine if "su" exists or if we're already root
 if grep -q "abcdef" <<< "$(adb shell su -c "echo abcdef")"
     then
@@ -57,21 +55,27 @@ else
     su="sh"
 fi
 
-size="$(adb shell $su -c "blockdev --getsize64 $remotes" | sed 's/[^0-9]//g')"
+echo "Calculating backup size... this might take a while."
+size="$(adb shell $su -c "du -s \"${remotes}/\"" | awk {print $1;} | sed 's/[^0-9]//g')"
 if [ "$size" == "" ]
     then
     size=0
 fi
 
+echo "Receiving backup from Android device, please wait..."
 echo
 
 if [ "$compression" != "no_compression" ]
     then
     (
         adb forward tcp:5455 tcp:5455
-        adb shell $su -c "busybox dd if=$remotes | gzip |  busybox nc -l -p 5455"
+        adb shell $su -c "mkfifo /cache/pipedbackup.tar.gz"
+        adb shell $su -c "tar -czf /cache/pipedbackup.tar.gz \"$remotes\"" &
+        sleep 1
+        adb shell $su -c "busybox dd if=/cache/pipedbackup.tar.gz |  busybox nc -l -p 5455"
         echo "( ↑↑↑ remote  ^^^ )"
     ) >> ${CFG}/pipedroid.log 2>&1 &
+
     sleep 1
 
     if [ "$compression" == "keep_compressed" ]
@@ -95,10 +99,16 @@ if [ "$compression" != "no_compression" ]
             echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
         )
     fi
+
+    adb shell $su -c "rm /cache/pipedbackup.tar.gz" >> ${CFG}/pipedroid.log 2>&1
+
 else
     (
         adb forward tcp:5455 tcp:5455
-        adb shell $su -c "busybox dd if=$remotes |  busybox nc -l -p 5455"
+        adb shell $su -c "mkfifo /cache/pipedbackup.tar"
+        adb shell $su -c "tar -cf /cache/pipedbackup.tar \"$remotes\"" &
+        sleep 1
+        adb shell $su -c "busybox dd if=/cache/pipedbackup.tar |  busybox nc -l -p 5455"
         echo "( ↑↑↑ remote  ^^^ )"
     ) >> ${CFG}/pipedroid.log 2>&1 &
 
@@ -108,7 +118,9 @@ else
         adb forward tcp:5455 tcp:5455
         nc 127.0.0.1 5455 | pv -s $size -i 0.4 | dd of="$locald" 2>> ${CFG}/pipedroid.log
         echo "( ↑↑↑ local  ^^^ )" >> ${CFG}/pipedroid.log
-    ) 
+    )
+
+    adb shell $su -c "rm /cache/pipedbackup.tar" >> ${CFG}/pipedroid.log 2>&1
 fi
 
 echo "Checking checksums..."

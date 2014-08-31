@@ -7,7 +7,7 @@ touch ${CFG}/pipedroid.log
 function debug {
     echo "$1" | while read line;
         do 
-        echo "$(date +%T) pipedrestore_img: $line" >> ${CFG}/pipedroid.log
+        echo "$(date +%T) pipedrestore_tar: $line" >> ${CFG}/pipedroid.log
     done
     if [ -e "${CFG}/debug" ];
         then
@@ -17,11 +17,11 @@ function debug {
 
 case $1 in
     "-h")
-        echo -e "Usage: pipedrestore_img [local_source] [remote_dest] --no-compression|-n"
+        echo -e "Usage: pipedrestore_tar [local_source] [remote_dest] --no-compression|-n"
         exit 0
     ;;
     "--help")
-        echo -e "Usage: pipedrestore_img [local_source] [remote_dest] --no-compression|-n"
+        echo -e "Usage: pipedrestore_tar [local_source] [remote_dest] --no-compression|-n"
         exit 0
     ;;
 esac
@@ -46,6 +46,9 @@ fi
 debug "Local source: $locals"
 debug "Remote destination: $remoted"
 
+echo "Emptying destination..."
+adb shell $su -c "rm -rf \"$remoted\"" >> ${CFG}/pipedroid.log 2>&1
+
 echo "Sending backup to Android device, please wait..."
 
 # Determine if "su" exists or if we're already root
@@ -64,7 +67,9 @@ if [ "$compression" == "yes" ]
     then
     (
         adb forward tcp:5454 tcp:5454
-        adb shell $su -c "busybox nc -l -p 5454 | gunzip | dd of=\"$remoted\""
+        adb shell $su -c "mkfifo /cache/pipedrestore.tar.gz"
+        adb shell $su -c "cd \"$remoted\"; tar -xzf /cache/pipedrestore.tar.gz" &
+        adb shell $su -c "busybox nc -l -p 5454  | dd of=/cache/pipedrestore.tar.gz"
         echo "( ↑↑↑ remote  ^^^ )"
     ) >> ${CFG}/pipedroid.log 2>&1 &
 
@@ -88,7 +93,9 @@ if [ "$compression" == "yes" ]
 else
     (
         adb forward tcp:5454 tcp:5454
-        adb shell $su -c "busybox nc -l -p 5454 | dd of=\"$remoted\""
+        adb shell $su -c "mkfifo /cache/pipedrestore.tar"
+        adb shell $su -c "cd \"$remoted\"; tar -xf /cache/pipedrestore.tar" &
+        adb shell $su -c "busybox nc -l -p 5454  | dd of=/cache/pipedrestore.tar"
         echo "( ↑↑↑ remote  ^^^ )"
     ) >> ${CFG}/pipedroid.log 2>&1 &
 
@@ -110,29 +117,4 @@ else
 	fi
 fi
 
-echo "Checking checksums..."
-
-if grep -qe 'gzip' <<< "$(file "$locals")"
-    then
-    csl="$(cat "$locals" | gunzip | md5sum | awk '{print $1;}')"
-else
-    csl="$(md5sum "$locals" | awk '{print $1;}' )"
-fi
-echo "$csl"
-
-csr="$(adb shell $su -c "md5sum \"$remoted\"" | awk '{print $1;}')"
-
-if grep -qe "^${csl}\$" <<< "$csr"
-    then
-    echo "${csr} - match. Restore successful."
-    debug "Success. Checksums match (${csl})"
-    exit 0
-else
-    echo -n "${csr}"
-    echo " - do NOT match! ERROR." 1>&2
-    echo "Run the program again. If this occurs again, report a bug on GitHub. Attach the log." 1>&2
-    debug "Local image checksum:    ${csl}"
-    debug "Remote device checksum:  ${csr}"
-    debug "Checksums do not match! Restore unsuccessful!"
-    exit 1
-fi
+exit 0

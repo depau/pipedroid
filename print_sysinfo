@@ -1,0 +1,76 @@
+#!/bin/bash
+
+echo "LSB Information"
+echo "==============="
+lsb_release -drc 2>&1
+
+echo
+echo "Kernel information"
+echo "=================="
+uname -a 2>&1
+
+echo
+echo "EasyBashGUI information"
+echo "======================="
+which easybashgui 2>&1 || echo "not found"
+easybashgui-debug 2>&1
+
+echo
+echo "Android device information"
+echo "=========================="
+adb devices -l  2>&1
+case "$(adb shell su -c "id -u")" in
+    *"not found"*)
+        if [ "$(adb shell id -u | sed 's/[^0-9]//g')" == "0" ]
+            then
+            echo " + seems rooted, adbd running as root"
+        else
+            echo " - seems not rooted"
+        fi
+    ;;
+    *0*)
+        su="su"
+        if [ "$(adb shell su -c "id -u" | sed 's/[^0-9]//g')" == "0" ]
+            then
+            echo " + seems rooted, adbd not running as root"
+        elif grep -q "uid=0" <<< "$(adb shell su -c "id -u")";
+            then
+            echo " + seems rooted, adbd not running as root"
+        else
+            echo " - seems not rooted"
+        fi
+    ;;
+    *)
+        echo " - seems not rooted, adbd not running as root"
+    ;;
+esac
+echo
+adb shell which dd 2>&1
+adb shell which gzip 2>&1
+adb shell gzip --version 2>&1
+adb shell which tar 2>&1
+adb shell which nc 2>&1
+adb shell which busybox 2>&1
+echo
+adb shell busybox 2>&1
+
+echo -n "ril.modem.board:      "
+adb shell getprop ril.modem.board 2>&1
+echo -n "ril.product_code:     "
+adb shell getprop ril.product_code 2>&1
+echo -n "ril.sw_ver:           "
+adb shell getprop ril.sw_ver 2>&1
+echo -n "ro.build.description: "
+adb shell getprop ro.build.description 2>&1
+echo -n "ro.build.product:     "
+adb shell getprop ro.build.product 2>&1
+echo -n "ro.product.brand:     "
+adb shell getprop ro.product.brand 2>&1
+echo -n "ro.product.model:     "
+adb shell getprop ro.product.model 2>&1
+echo -n "ro.product.name:      "
+adb shell getprop ro.product.name 2>&1
+echo
+
+# I hope it works :/
+git log -1 2>&1
