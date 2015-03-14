@@ -1,0 +1,9 @@
+#!/bin/bash
+
+#wget busybox-armv7h
+
+adb push busybox-armv7l /
+adb shell chmod 777 /busybox-armv7l
+adb shell cp /busybox-armv7l /sbin/busybox
+adb shell ln -s /sbin/busybox /sbin/nc
+echo "Busybox installed."
