@@ -37,13 +37,13 @@ debug "Remote source: $remotes"
 debug "Local destination: $locald"
 debug "Compression method: $compression"
 
-rm "$locald" > /dev/null
+rm "$locald" 2> /dev/null
 if grep -qE "keep_compressed|recompress" <<< "$compression"
     then
-    if [ "$locald" != "*gz" ]
+    if grep -qe ".gz$" <<< "$locald"
         then
         locald="${locald}.gz"
-        rm "$locald" > /dev/null
+        rm "$locald" 2> /dev/null
     fi
 fi
 
@@ -57,7 +57,7 @@ else
     su="sh"
 fi
 
-size="$(adb shell $su -c "blockdev --getsize64 $remotes" | sed 's/[^0-9]//g')"
+size="$(adb shell \"blockdev --getsize64 ${remotes}\" | sed 's/[^0-9]//g')"
 if [ "$size" == "" ]
     then
     size=0
@@ -98,7 +98,8 @@ if [ "$compression" != "no_compression" ]
 else
     (
         adb forward tcp:5455 tcp:5455
-        adb shell $su -c "busybox dd if=$remotes |  busybox nc -l -p 5455"
+#	adb shell
+        adb shell "/sbin/busybox dd if=$remotes | /sbin/busybox nc -l -p 5455"
         echo "( ↑↑↑ remote  ^^^ )"
     ) >> ${CFG}/pipedroid.log 2>&1 &
 
@@ -113,35 +114,34 @@ fi
 
 echo "Checking checksums..."
 
-if grep -qe 'gzip' <<< "$(file "$locald")"
+if grep -qe 'gzip' <<< "$(file "$locals")"
     then
     csl="$(cat "$locald" | gunzip | md5sum | awk '{print $1;}')"
 else
     csl="$(md5sum "$locald" | awk '{print $1;}' )"
 fi
-echo "Local: $csl"
+echo "$csl"
 
-csr="$(adb shell $su -c "md5sum \"$remotes\"" | awk '{print $1;}')"
+csr="$(adb shell "md5sum \"$remotes\"" | awk '{print $1;}')"
 
 if grep -qe "^${csl}\$" <<< "$csr"
     then
-    echo "Remote: ${csr} - match. Backup successful."
+    echo "${csr} - match. Backup successful."
     debug "Success. Checksums match (${csl})"
-    if [ "$4" == "--pause" ]
-        then
-        read
-    fi
     exit 0
 else
-    echo -n "Remote: ${csr}"
+    echo -n "${csr}"
     echo " - do NOT match! ERROR." 1>&2
     echo "Run the program again. If this occurs again, report a bug on GitHub. Attach the log." 1>&2
     debug "Local image checksum:    ${csl}"
     debug "Remote device checksum:  ${csr}"
     debug "Checksums do not match! Backup unsuccessful!"
-    if [ "$4" == "--pause" ]
-        then
-        read
-    fi
     exit 1
+fi
+
+
+if [ "$4" == "--pause" ]
+    then
+    echo -n "Backup has finished. Press Enter/Return or close this window"
+    read
 fi
